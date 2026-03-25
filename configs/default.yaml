@@ -1,0 +1,35 @@
+# LeWorldModel default configuration
+
+# Model
+embed_dim: 192
+img_size: 224
+patch_size: 14
+pred_n_layers: 6
+pred_n_heads: 16
+pred_dropout: 0.1
+sigreg_lambda: 0.1
+sigreg_projections: 1024
+
+# Training
+batch_size: 32  # Reduced from 128 for Mac memory
+lr: 0.0001
+weight_decay: 0.00001
+epochs: 10
+sub_traj_len: 4
+frame_skip: 5
+
+# Data collection
+n_episodes: 500  # Reduced from 10k/20k for quick iteration
+
+# Planning (CEM)
+cem_horizon: 5
+cem_samples: 300
+cem_elites: 30
+cem_iterations: 10
+
+# MPC
+mpc_replan_horizon: 5
+
+# Environment
+env: two_room  # two_room or push_t
+action_dim: 2
