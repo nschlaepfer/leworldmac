@@ -3,6 +3,10 @@ Transformer Predictor with Adaptive Layer Normalization (AdaLN).
 
 Predicts next latent state z_{t+1} given current state z_t and action a_t.
 Uses causal masking for autoregressive prediction over a history of frames.
+
+The predictor uses a ViT-S-scale internal dimension (384) while accepting
+and producing embeddings at the encoder's dimension (192), matching the
+paper's ~10M parameter count.
 """
 
 import torch
@@ -86,19 +90,19 @@ class Predictor(nn.Module):
     """Transformer predictor for latent dynamics.
 
     Architecture (from paper):
-    - 6 layers, 16 attention heads, 10% dropout (~10M parameters)
+    - ViT-S backbone: 6 layers, 16 attention heads, 10% dropout (~10M parameters)
+    - Internal dimension 384 (ViT-S scale), with input/output projections
+      to/from the encoder's embed_dim (192)
     - AdaLN for action conditioning (zero-initialized)
     - Learned positional embeddings
     - Temporal causal masking
     - Projection head (same as encoder)
-
-    Takes a history of N frame representations and actions,
-    predicts next frame representations autoregressively.
     """
 
     def __init__(
         self,
         embed_dim: int = 192,
+        hidden_dim: int = 384,
         action_dim: int = 2,
         n_layers: int = 6,
         n_heads: int = 16,
@@ -107,23 +111,30 @@ class Predictor(nn.Module):
     ):
         super().__init__()
         self.embed_dim = embed_dim
+        self.hidden_dim = hidden_dim
 
-        # Action embedding
-        self.action_embed = nn.Linear(action_dim, embed_dim)
+        # Input projection: encoder dim -> predictor internal dim
+        self.input_proj = nn.Linear(embed_dim, hidden_dim)
 
-        # Learned positional embeddings
-        self.pos_embed = nn.Parameter(torch.randn(1, max_seq_len, embed_dim) * 0.02)
+        # Action embedding to predictor internal dim
+        self.action_embed = nn.Linear(action_dim, hidden_dim)
 
-        # Transformer blocks with AdaLN
+        # Learned positional embeddings at internal dim
+        self.pos_embed = nn.Parameter(torch.randn(1, max_seq_len, hidden_dim) * 0.02)
+
+        # Transformer blocks with AdaLN at internal dim
         self.blocks = nn.ModuleList([
-            PredictorBlock(embed_dim, n_heads, cond_dim=embed_dim, dropout=dropout)
+            PredictorBlock(hidden_dim, n_heads, cond_dim=hidden_dim, dropout=dropout)
             for _ in range(n_layers)
         ])
 
         # Final layer norm
-        self.final_norm = nn.LayerNorm(embed_dim)
+        self.final_norm = nn.LayerNorm(hidden_dim)
 
-        # Projection head
+        # Output projection: predictor internal dim -> encoder dim
+        self.output_proj = nn.Linear(hidden_dim, embed_dim)
+
+        # Projection head (same as encoder: Linear + BatchNorm)
         self.projection = ProjectionHead(embed_dim, embed_dim)
 
     def _causal_mask(self, T: int, device: torch.device) -> torch.Tensor:
@@ -139,20 +150,23 @@ class Predictor(nn.Module):
         """Predict next latent states autoregressively.
 
         Args:
-            z: (B, T, D) encoded frame representations.
+            z: (B, T, D) encoded frame representations (embed_dim).
             actions: (B, T, A) actions taken at each timestep.
 
         Returns:
-            z_hat: (B, T, D) predicted next-step embeddings.
+            z_hat: (B, T, D) predicted next-step embeddings (embed_dim).
                    z_hat[:, t] is the prediction for z[:, t+1].
         """
         B, T, D = z.shape
 
-        # Embed actions
-        action_cond = self.action_embed(actions)  # (B, T, D)
+        # Project to internal dimension
+        x = self.input_proj(z)  # (B, T, hidden_dim)
+
+        # Embed actions at internal dim
+        action_cond = self.action_embed(actions)  # (B, T, hidden_dim)
 
         # Add positional embeddings
-        x = z + self.pos_embed[:, :T, :]
+        x = x + self.pos_embed[:, :T, :]
 
         # Causal mask
         mask = self._causal_mask(T, z.device)
@@ -163,8 +177,11 @@ class Predictor(nn.Module):
 
         x = self.final_norm(x)
 
-        # Project to prediction space
-        z_hat = self.projection(x)  # (B, T, D)
+        # Project back to encoder dimension
+        x = self.output_proj(x)  # (B, T, embed_dim)
+
+        # Projection head
+        z_hat = self.projection(x)  # (B, T, embed_dim)
 
         return z_hat
 
@@ -186,15 +203,12 @@ class Predictor(nn.Module):
         Returns:
             z_next: (B, D) predicted next latent state.
         """
-        B = z.shape[0]
-
         if history is not None and history_actions is not None:
-            # Concatenate history with current
-            all_z = torch.cat([history, z.unsqueeze(1)], dim=1)  # (B, H+1, D)
-            all_a = torch.cat([history_actions, action.unsqueeze(1)], dim=1)  # (B, H+1, A)
+            all_z = torch.cat([history, z.unsqueeze(1)], dim=1)
+            all_a = torch.cat([history_actions, action.unsqueeze(1)], dim=1)
         else:
-            all_z = z.unsqueeze(1)  # (B, 1, D)
-            all_a = action.unsqueeze(1)  # (B, 1, A)
+            all_z = z.unsqueeze(1)
+            all_a = action.unsqueeze(1)
 
-        z_hat = self.forward(all_z, all_a)  # (B, T, D)
-        return z_hat[:, -1, :]  # (B, D) - last prediction
+        z_hat = self.forward(all_z, all_a)
+        return z_hat[:, -1, :]

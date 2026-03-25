@@ -81,6 +81,7 @@ def main():
     action_dim = config["action_dim"]
     model = LeWorldModel(
         embed_dim=config["embed_dim"],
+        pred_hidden_dim=config.get("pred_hidden_dim", 384),
         action_dim=action_dim,
         img_size=config["img_size"],
         patch_size=config["patch_size"],

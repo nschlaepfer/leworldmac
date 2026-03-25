@@ -2,6 +2,7 @@
 
 # Model
 embed_dim: 192
+pred_hidden_dim: 320  # Internal dimension for predictor (~10M params, ~15M total)
 img_size: 224
 patch_size: 14
 pred_n_layers: 6

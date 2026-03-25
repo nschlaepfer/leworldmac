@@ -7,7 +7,7 @@ from torch.utils.data import DataLoader
 from tqdm import tqdm
 
 
-def train_epoch(model, dataloader, optimizer, device, epoch):
+def train_epoch(model, dataloader, optimizer, scheduler, device, epoch):
     """Train for one epoch."""
     model.train()
     total_loss = 0.0
@@ -28,6 +28,7 @@ def train_epoch(model, dataloader, optimizer, device, epoch):
         # Gradient clipping
         torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0)
         optimizer.step()
+        scheduler.step()
 
         total_loss += loss.item()
         total_pred += out["pred_loss"].item()
@@ -71,8 +72,7 @@ def train(model, dataset, config, device):
 
     history = []
     for epoch in range(1, config.get("epochs", 10) + 1):
-        metrics = train_epoch(model, dataloader, optimizer, device, epoch)
-        scheduler.step()
+        metrics = train_epoch(model, dataloader, optimizer, scheduler, device, epoch)
         history.append(metrics)
         print(
             f"Epoch {epoch}: loss={metrics['loss']:.4f}, "

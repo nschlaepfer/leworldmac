@@ -29,10 +29,8 @@ def _epps_pulley(h: torch.Tensor, n_quadrature: int = 50) -> torch.Tensor:
 
     N = h.shape[0]
 
-    # Standardize: zero mean, unit variance (makes the test more robust)
-    h = h - h.mean(dim=0, keepdim=True)
-    std = h.std(dim=0, keepdim=True).clamp(min=1e-8)
-    h = h / std
+    # No standardization — the whole point of SIGReg is to push
+    # embeddings toward N(0,1), so we must test the raw projections.
 
     # Quadrature nodes uniformly in [0.2, 4] as specified in paper
     t = torch.linspace(0.2, 4.0, n_quadrature, device=h.device, dtype=h.dtype)  # (Q,)

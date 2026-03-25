@@ -97,6 +97,10 @@ class CEMPlanner:
     ) -> torch.Tensor:
         """Roll out action sequences and compute costs.
 
+        Maintains a rolling history window during the rollout so the
+        predictor can use its full context (matching paper's history
+        length of 3 for PushT/OGBench, 1 for TwoRoom).
+
         Args:
             z_init: (1, D) initial state.
             z_goal: (1, D) goal state.
@@ -111,10 +115,23 @@ class CEMPlanner:
         # Expand z_init for all candidates
         z = z_init.expand(N, -1)  # (N, D)
 
-        # Roll out autoregressively
+        # Accumulate history for predictor context
+        z_history = []  # list of (N, D) tensors
+        a_history = []  # list of (N, A) tensors
+
         for t in range(H):
             a_t = actions[:, t, :]  # (N, A)
-            z = self.world_model.predict_next(z, a_t)  # (N, D)
+
+            if len(z_history) > 0:
+                hist_z = torch.stack(z_history, dim=1)  # (N, t, D)
+                hist_a = torch.stack(a_history, dim=1)  # (N, t, A)
+                z_next = self.world_model.predict_next(z, a_t, history=hist_z, history_actions=hist_a)
+            else:
+                z_next = self.world_model.predict_next(z, a_t)
+
+            z_history.append(z)
+            a_history.append(a_t)
+            z = z_next
 
         # Cost: MSE to goal
         z_goal_expanded = z_goal.expand(N, -1)  # (N, D)

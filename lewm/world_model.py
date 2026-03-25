@@ -40,6 +40,7 @@ class LeWorldModel(nn.Module):
     def __init__(
         self,
         embed_dim: int = 192,
+        pred_hidden_dim: int = 384,
         action_dim: int = 2,
         img_size: int = 224,
         patch_size: int = 14,
@@ -53,6 +54,7 @@ class LeWorldModel(nn.Module):
         self.encoder = ViTEncoder(embed_dim=embed_dim, img_size=img_size, patch_size=patch_size)
         self.predictor = Predictor(
             embed_dim=embed_dim,
+            hidden_dim=pred_hidden_dim,
             action_dim=action_dim,
             n_layers=pred_n_layers,
             n_heads=pred_n_heads,
